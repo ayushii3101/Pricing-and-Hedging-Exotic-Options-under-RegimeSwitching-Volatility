@@ -1,0 +1,171 @@
+# Model Configuration for Regime-Switching Stochastic Volatility
+
+# Market Parameters
+market:
+  spot_price: 100.0
+  risk_free_rate: 0.03
+  dividend_yield: 0.01
+
+# Regime Configuration
+# Regime Configuration
+regimes:
+  n_regimes: 3
+  
+  # Regime 1: Low Volatility (Calm Market)
+  regime_1:
+    name: "Low Vol"
+    drift: 0.08
+    volatility: 0.0923
+    volatility_type: "heston"
+    mean_reversion: 0.5    # Keep default or tweak
+    vol_of_vol: 0.1        # Keep default or tweak
+    long_term_var: 0.0085  # approx 0.0923^2
+    correlation: -0.5
+    
+  # Regime 2: Medium Volatility (Normal Market)
+  regime_2:
+    name: "Medium Vol"
+    drift: 0.04
+    volatility: 0.2135
+    volatility_type: "heston"
+    mean_reversion: 1.0
+    vol_of_vol: 0.3
+    long_term_var: 0.0456  # approx 0.2135^2
+    correlation: -0.7
+    
+  # Regime 3: High Volatility (Turbulent Market)
+  regime_3:
+    name: "High Vol"
+    drift: -0.10
+    volatility: 0.5719
+    volatility_type: "heston"
+    mean_reversion: 2.0
+    vol_of_vol: 0.5
+    long_term_var: 0.3270  # approx 0.5719^2
+    correlation: -0.8
+
+# Transition Probability Matrix
+transition_matrix:
+  - [0.9895652836706768, 0.010434716329323291, 0.000000000000000001]
+  - [0.015575749784736992, 0.9818110020246527, 0.0026132481906104834]
+  - [0.000000000000000001, 0.03413778170966149, 0.9658622182903386]
+
+# Transition Probability Matrix
+# Q[i][j] = probability of transitioning from regime i to regime j per year
+transition_matrix:
+  # From Regime 1 (Low Vol)
+  - [0.85, 0.12, 0.03]    # To: Low, Medium, High
+  # From Regime 2 (Medium Vol)
+  - [0.10, 0.80, 0.10]    # To: Low, Medium, High
+  # From Regime 3 (High Vol)
+  - [0.05, 0.25, 0.70]    # To: Low, Medium, High
+
+# Simulation Settings
+simulation:
+  n_paths: 20000
+  n_steps: 252  # Trading days per year
+  time_horizon: 1.0  # Years
+  seed: 42
+  antithetic: true
+  control_variate: true
+
+# Option Specifications
+options:
+  barrier:
+    type: "up-and-out"
+    strike: 100.0
+    barrier: 120.0
+    maturity: 1.0
+    option_type: "call"  # call or put
+    rebate: 0.0
+    
+  asian:
+    type: "arithmetic"  # arithmetic or geometric
+    strike: 100.0
+    maturity: 1.0
+    option_type: "call"
+    averaging_start: 0.0
+    n_averaging_points: 50
+    
+  lookback:
+    type: "fixed"  # fixed or floating
+    strike: 100.0
+    maturity: 1.0
+    option_type: "call"
+
+# PDE Solver Settings
+pde_solver:
+  method: "crank-nicolson"  # explicit, implicit, crank-nicolson
+  n_space_steps: 200
+  n_time_steps: 500
+  space_domain:
+    min: 0.0
+    max: 300.0
+  boundary_condition: "dirichlet"
+  theta: 0.5  # 0=explicit, 0.5=Crank-Nicolson, 1=implicit
+
+# Hedging Configuration
+hedging:
+  instruments:
+    - type: "underlying"
+      name: "Stock"
+    - type: "vanilla_call"
+      strike: 100.0
+      maturity: 1.0
+    - type: "vanilla_put"
+      strike: 100.0
+      maturity: 1.0
+      
+  rebalancing:
+    frequency: "daily"  # daily, weekly, monthly
+    n_rebalances: 252
+    
+  optimization:
+    method: "mean-variance"  # mean-variance, min-variance, utility
+    risk_aversion: 0.5
+    transaction_cost: 0.001  # 10 bps
+    
+  constraints:
+    max_leverage: 2.0
+    min_hedge_ratio: -2.0
+    max_hedge_ratio: 2.0
+
+# Greeks Computation
+greeks:
+  method: "finite_difference"  # finite_difference, pathwise, likelihood_ratio
+  bump_size: 0.01
+  second_order: true
+  cross_gamma: true
+
+# Validation and Testing
+validation:
+  martingale_test:
+    enabled: true
+    confidence_level: 0.95
+    n_tests: 1000
+    
+  convergence_test:
+    enabled: true
+    path_sizes: [100, 500, 1000, 5000, 10000]
+    
+  benchmark:
+    black_scholes: true
+    comparison_tolerance: 0.05
+
+# Output Settings
+output:
+  save_results: true
+  results_directory: "results"
+  plot_format: "png"  # png, pdf, svg
+  save_simulations: false
+  verbose: true
+  
+  figures:
+    dpi: 300
+    style: "seaborn-v0_8-darkgrid"
+    figsize: [12, 8]
+    
+  reports:
+    generate_pdf: true
+    include_plots: true
+    summary_statistics: true
