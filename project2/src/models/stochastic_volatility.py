@@ -9,9 +9,33 @@ import numpy as np
 from typing import Optional, Tuple
 from abc import ABC, abstractmethod
 import logging
+from numba import jit
 
 logger = logging.getLogger(__name__)
 
+
+# --- JIT Compiled Kernels (Production Optimization) ---
+
+@jit(nopython=True, cache=True)
+def jit_heston_update(variance: float, dt: float, kappa: float, 
+                      theta: float, sigma_v: float) -> float:
+    """
+    Core Heston variance update using Euler-Maruyama with absorption.
+    Compiled for speed using Numba.
+    """
+    dW = np.random.randn() * np.sqrt(dt)
+    
+    # Absorption at zero to prevent negative variance
+    V_t = max(variance, 0.0)
+    
+    drift = kappa * (theta - V_t)
+    diffusion = sigma_v * np.sqrt(V_t) * dW
+    
+    V_next = V_t + drift * dt + diffusion
+    return max(V_next, 0.0)
+
+
+# --- Class Definitions ---
 
 class StochasticVolatilityModel(ABC):
     """Abstract base class for stochastic volatility models."""
@@ -98,7 +122,7 @@ class HestonVolatility(StochasticVolatilityModel):
         if not self.feller_condition:
             logger.warning(
                 "Feller condition not satisfied: variance may hit zero. "
-                f"2κθ = {2*kappa*theta:.4f}, σ_v² = {sigma_v**2:.4f}"
+                f"2*kappa*theta = {2*kappa*theta:.4f}, sigma_v^2 = {sigma_v**2:.4f}"
             )
     
     def simulate_variance_path(
@@ -109,23 +133,7 @@ class HestonVolatility(StochasticVolatilityModel):
         seed: Optional[int] = None
     ) -> np.ndarray:
         """
-        Simulate variance path using Euler-Maruyama scheme with absorption.
-        
-        Parameters
-        ----------
-        n_steps : int
-            Number of time steps
-        dt : float
-            Time step size
-        initial_var : float
-            Initial variance V_0
-        seed : int, optional
-            Random seed
-            
-        Returns
-        -------
-        np.ndarray
-            Variance path, shape (n_steps+1,)
+        Simulate variance path using JIT-compiled Euler-Maruyama scheme.
         """
         if seed is not None:
             np.random.seed(seed)
@@ -133,19 +141,11 @@ class HestonVolatility(StochasticVolatilityModel):
         variance = np.zeros(n_steps + 1)
         variance[0] = initial_var
         
+        # Use JIT compiled kernel for loop execution speed
         for t in range(n_steps):
-            dW = np.random.randn() * np.sqrt(dt)
-            
-            # Euler-Maruyama with absorption at zero
-            V_t = max(variance[t], 0.0)
-            
-            drift = self.kappa * (self.theta - V_t)
-            diffusion = self.sigma_v * np.sqrt(V_t) * dW
-            
-            variance[t + 1] = V_t + drift * dt + diffusion
-            
-            # Ensure non-negativity (absorption)
-            variance[t + 1] = max(variance[t + 1], 0.0)
+            variance[t + 1] = jit_heston_update(
+                variance[t], dt, self.kappa, self.theta, self.sigma_v
+            )
         
         return variance
     
@@ -158,13 +158,7 @@ class HestonVolatility(StochasticVolatilityModel):
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Simulate correlated variance path and asset Brownian increments.
-        
-        Returns
-        -------
-        variance_path : np.ndarray
-            Variance path
-        dW_asset : np.ndarray
-            Correlated Brownian increments for asset price
+        (Kept for testing/demo purposes; main simulation uses AssetSimulator)
         """
         if seed is not None:
             np.random.seed(seed)
@@ -181,7 +175,7 @@ class HestonVolatility(StochasticVolatilityModel):
             # Correlated increment for asset
             dW_asset[t] = self.rho * dW_v + np.sqrt(1 - self.rho**2) * dW_indep
             
-            # Update variance
+            # Update variance (using standard python logic here for simplicity in this helper method)
             V_t = max(variance[t], 0.0)
             drift = self.kappa * (self.theta - V_t)
             diffusion = self.sigma_v * np.sqrt(V_t) * dW_v
@@ -327,3 +321,5 @@ def create_volatility_model(
     
     else:
         raise ValueError(f"Unknown volatility type: {vol_type}")
+
+

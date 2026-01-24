@@ -56,7 +56,7 @@ def main():
     print(f"  Mean discounted S_T: {martingale_test['mean_discounted_ST']:.4f}")
     print(f"  S_0:                 {martingale_test['S0']:.4f}")
     print(f"  Relative Error:      {martingale_test['relative_error']*100:.2f}%")
-    print(f"  Test Result:         {'PASSED ✓' if martingale_test['test_passed'] else 'FAILED ✗'}")
+    print(f"  Test Result:         {'PASSED' if martingale_test['test_passed'] else 'FAILED'}")
     
     # Test regime stationarity
     print("\n[4/10] Testing regime stationarity...")
@@ -223,7 +223,7 @@ def main():
     print(f"\nTotal execution time: {elapsed_time:.2f} seconds")
     print(f"Results saved to: {output_dir}")
     print("\nKey Findings:")
-    print(f"  • Martingale test: {'PASSED ✓' if martingale_test['test_passed'] else 'FAILED ✗'}")
+    print(f"  • Martingale test: {'PASSED' if martingale_test['test_passed'] else 'FAILED'}")
     print(f"  • Barrier option price: ${barrier_price['price']:.4f}")
     print(f"  • RS vs BS difference: {bs_comparison['relative_difference']*100:.2f}%")
     print(f"  • Hedging error: {hedging_results['terminal_hedge_error']['relative_error']*100:.2f}%")

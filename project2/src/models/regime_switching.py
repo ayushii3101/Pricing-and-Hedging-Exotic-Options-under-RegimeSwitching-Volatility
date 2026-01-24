@@ -211,20 +211,49 @@ class RegimeSwitchingModel:
     
     Parameters
     ----------
-    regime_params : List[RegimeParameters]
-        List of parameters for each regime
     transition_matrix : np.ndarray
         Transition probability matrix
+    regime_params : List[RegimeParameters]
+        List of parameters for each regime
     dt : float
         Time step
     """
     
     def __init__(
         self,
-        regime_params: List[RegimeParameters],
         transition_matrix: np.ndarray,
+        regime_params: List[RegimeParameters],
         dt: float = 1.0 / 252
     ):
+        def _is_regime_params(candidate: object) -> bool:
+            return (
+                isinstance(candidate, list)
+                and len(candidate) > 0
+                and all(isinstance(item, RegimeParameters) for item in candidate)
+            )
+
+        def _is_square_numeric_matrix(candidate: object) -> bool:
+            try:
+                arr = np.array(candidate)
+            except Exception:
+                return False
+            return (
+                arr.ndim == 2
+                and arr.shape[0] == arr.shape[1]
+                and np.issubdtype(arr.dtype, np.number)
+            )
+
+        # Accept either (transition_matrix, regime_params) or (regime_params, transition_matrix).
+        if _is_regime_params(transition_matrix) and _is_square_numeric_matrix(regime_params):
+            transition_matrix, regime_params = regime_params, transition_matrix
+        elif _is_regime_params(regime_params) and _is_square_numeric_matrix(transition_matrix):
+            pass
+        else:
+            raise ValueError(
+                "RegimeSwitchingModel expects (transition_matrix, regime_params) "
+                "or (regime_params, transition_matrix)."
+            )
+        
         self.regime_params = regime_params
         self.n_regimes = len(regime_params)
         self.dt = dt
@@ -342,4 +371,8 @@ def create_model_from_config(config: dict) -> RegimeSwitchingModel:
     
     dt = 1.0 / config['simulation']['n_steps']
     
-    return RegimeSwitchingModel(regime_params, transition_matrix, dt)
+    return RegimeSwitchingModel(
+        transition_matrix=transition_matrix,
+        regime_params=regime_params,
+        dt=dt,
+    )

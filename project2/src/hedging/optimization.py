@@ -31,6 +31,7 @@ class MeanVarianceHedger:
     
     def __init__(self, asset_simulator, risk_aversion: float = 0.5):
         self.simulator = asset_simulator
+        self.asset_simulator = asset_simulator
         self.risk_aversion = risk_aversion
         
         logger.info(f"Initialized mean-variance hedger with lambda={risk_aversion}")
@@ -39,10 +40,11 @@ class MeanVarianceHedger:
     def compute_optimal_weights(
         self,
         option,
-        hedging_instruments: List,
+        hedging_instruments: Optional[List] = None,
         n_scenarios: int = 10000,
-        initial_regime: int = 0
-    ) -> np.ndarray:
+        initial_regime: int = 0,
+        n_paths: Optional[int] = None
+    ):
         """
         Compute optimal hedge weights using quadratic programming.
         
@@ -63,6 +65,21 @@ class MeanVarianceHedger:
             Optimal weights for hedging instruments
         """
         logger.info("Computing optimal hedge weights...")
+
+        if n_paths is not None:
+            n_scenarios = n_paths
+
+        # Support passing a HedgingPortfolio directly.
+        if hedging_instruments is None and hasattr(option, "instruments") and hasattr(option, "target_option"):
+            portfolio = option
+            option = portfolio.target_option
+            hedging_instruments = portfolio.instruments
+            return_as_dict = True
+        else:
+            return_as_dict = False
+
+        if not hedging_instruments:
+            raise ValueError("hedging_instruments must be provided and non-empty.")
         
         # Generate scenarios
         T = option.maturity
@@ -115,6 +132,9 @@ class MeanVarianceHedger:
         
         logger.info(f"Optimal weights computed: {weights}")
         
+        if return_as_dict:
+            return {instrument.name: weights[i] for i, instrument in enumerate(hedging_instruments)}
+
         return weights
     
     def _compute_instrument_terminal_value(self, instrument, terminal_spot: float) -> float:

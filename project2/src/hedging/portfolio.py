@@ -167,27 +167,79 @@ class HedgingPortfolio:
     
     def compute_hedging_error(
         self,
-        terminal_payoff: float,
-        terminal_value: float
+        terminal_payoff,
+        terminal_value: Optional[float] = None,
+        n_paths: int = 1000,
+        initial_regime: int = 0,
+        show_progress: bool = False
     ) -> Dict[str, float]:
         """
         Compute hedging error metrics.
         
         Parameters
         ----------
-        terminal_payoff : float
-            True option payoff at maturity
-        terminal_value : float
+        terminal_payoff : float or AssetSimulator
+            True option payoff at maturity, or an AssetSimulator to run a Monte Carlo
+        terminal_value : float, optional
             Hedging portfolio value at maturity
+        n_paths : int
+            Number of Monte Carlo paths (when passing AssetSimulator)
+        initial_regime : int
+            Starting regime (when passing AssetSimulator)
+        show_progress : bool
+            Show progress bar for simulations
             
         Returns
         -------
         Dict[str, float]
             Hedging error metrics
         """
+        # Path-based Monte Carlo error estimation.
+        if terminal_value is None and hasattr(terminal_payoff, "simulate_paths"):
+            simulator = terminal_payoff
+            option = self.target_option
+            T = option.maturity
+            n_steps = max(int(T * 252), 1)
+
+            prices, regimes, _ = simulator.simulate_paths(
+                n_paths,
+                n_steps,
+                T,
+                initial_regime=initial_regime,
+                risk_neutral=True,
+                show_progress=show_progress
+            )
+
+            payoffs = np.array([option.payoff(prices[i, :]) for i in range(n_paths)])
+            terminal_spots = prices[:, -1]
+
+            implied_vol = float(
+                np.mean([params.volatility for params in simulator.regime_model.regime_params])
+            )
+
+            terminal_values = np.array([
+                self.value(
+                    spot,
+                    risk_free_rate=getattr(simulator, "r", 0.0),
+                    dividend_yield=getattr(simulator, "q", 0.0),
+                    time=T,
+                    volatility=implied_vol
+                )
+                for spot in terminal_spots
+            ])
+
+            errors = terminal_values - payoffs
+            return {
+                'mean_error': float(np.mean(errors)),
+                'std_error': float(np.std(errors)),
+                'rmse': float(np.sqrt(np.mean(errors ** 2))),
+                'n_paths': int(n_paths)
+            }
+
+        # Terminal error for a single realization.
         error = terminal_value - terminal_payoff
         relative_error = error / max(abs(terminal_payoff), 1e-6)
-        
+
         return {
             'absolute_error': error,
             'relative_error': relative_error,

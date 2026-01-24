@@ -8,7 +8,11 @@ Monte Carlo simulation-based pricing for exotic options under regime-switching.
 import numpy as np
 from typing import Optional, Dict, List, Tuple
 import logging
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ModuleNotFoundError:  # pragma: no cover - fallback for minimal installs
+    def tqdm(iterable, **kwargs):
+        return iterable
 
 from ..models.asset_dynamics import AssetSimulator
 from .exotic_options import ExoticOption
@@ -34,8 +38,14 @@ class MonteCarloEngine:
         self,
         asset_simulator: AssetSimulator,
         n_simulations: int = 10000,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        n_paths: Optional[int] = None
     ):
+        if n_paths is not None:
+            if n_simulations != 10000 and n_simulations != n_paths:
+                raise ValueError("Provide either n_simulations or n_paths, not conflicting values.")
+            n_simulations = n_paths
+
         self.simulator = asset_simulator
         self.n_simulations = n_simulations
         self.seed = seed

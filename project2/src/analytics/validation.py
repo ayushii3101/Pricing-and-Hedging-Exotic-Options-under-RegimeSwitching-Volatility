@@ -79,9 +79,9 @@ class MartingaleValidator:
         })
         
         if result['test_passed']:
-            logger.info(f"✓ Martingale test PASSED (p={p_value:.4f})")
+            logger.info(f"Martingale test PASSED (p={p_value:.4f})")
         else:
-            logger.warning(f"✗ Martingale test FAILED (p={p_value:.4f})")
+            logger.warning(f"Martingale test FAILED (p={p_value:.4f})")
         
         return result
     
@@ -187,3 +187,4 @@ class MartingaleValidator:
             'expected_rate': 0.5,
             'rate_error': abs(convergence_rate - 0.5)
         }
+
