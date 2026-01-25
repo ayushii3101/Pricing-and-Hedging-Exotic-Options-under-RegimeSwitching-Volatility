@@ -1,0 +1,47 @@
+# Production Configuration for Portfolio Optimization
+
+system:
+  log_level: "INFO"
+  log_file: "portfolio_optimization.log"
+  n_jobs: -1  # Use all available cores
+  random_seed: 42
+
+simulation:
+  mode: "real"        # <--- CRITICAL FIX: Set to "real" to use yfinance
+  n_assets: 5         # Ignored in 'real' mode (inferred from tickers)
+  time_horizon_years: 3.0
+  n_steps: 756        # Only used for synthetic mode
+  n_scenarios: 500    # Only used for synthetic mode
+
+market_data:
+  # Diverse universe: Equities (US/EM), Bonds, Commodities, Real Estate
+  tickers: ["SPY", "QQQ", "EEM", "TLT", "VNQ"] 
+  start_date: "2020-01-01"
+  end_date: "2024-01-01"
+
+regime_model:
+  n_regimes: 3
+  # Default parameters for SYNTHETIC mode only
+  # (In real mode, regimes are detected via HMM)
+  bull_market:
+    mu: 0.15
+    kappa: 2.0
+    theta: 0.04
+    xi: 0.3
+    v0: 0.04
+  bear_market:
+    mu: -0.05
+    kappa: 3.0
+    theta: 0.09
+    xi: 0.4
+    v0: 0.09
+
+backtest:
+  initial_capital: 1000000.0
+  transaction_cost: 0.001  # 10 bps
+  rebalance_frequency: 21  # Monthly
+  risk_free_rate: 0.03
+  walk_forward:
+    train_size: 252
+    test_size: 63
+    step_size: 21
