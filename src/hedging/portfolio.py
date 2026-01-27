@@ -238,7 +238,14 @@ class HedgingPortfolio:
 
         # Terminal error for a single realization.
         error = terminal_value - terminal_payoff
-        relative_error = error / max(abs(terminal_payoff), 1e-6)
+        
+        # Robust relative error calculation (Safe against divide-by-zero)
+        denominator = abs(terminal_payoff)
+        if denominator < 1e-4:
+            # Option expired OTM/ATM, relative error is not meaningful
+            relative_error = 0.0 
+        else:
+            relative_error = error / denominator
 
         return {
             'absolute_error': error,

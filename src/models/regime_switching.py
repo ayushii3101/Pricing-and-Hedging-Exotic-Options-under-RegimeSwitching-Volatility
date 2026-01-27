@@ -11,6 +11,11 @@ from typing import Optional, Tuple, List
 from dataclasses import dataclass
 import logging
 
+from ..utils.input_validation import (
+    validate_regime_parameters,
+    validate_markov_chain_inputs,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +30,18 @@ class RegimeParameters:
     vol_of_vol: float = 0.0
     long_term_var: Optional[float] = None
     correlation: float = 0.0
+
+    def __post_init__(self) -> None:
+        validate_regime_parameters(
+            self.regime_id,
+            self.name,
+            self.drift,
+            self.volatility,
+            self.mean_reversion,
+            self.vol_of_vol,
+            self.long_term_var,
+            self.correlation,
+        )
 
 
 class MarkovChain:
@@ -51,6 +68,7 @@ class MarkovChain:
         transition_matrix: np.ndarray,
         dt: float = 1.0 / 252  # Daily time step
     ):
+        validate_markov_chain_inputs(n_regimes, dt)
         self.n_regimes = n_regimes
         self.Q = np.array(transition_matrix)
         self.dt = dt
@@ -221,8 +239,9 @@ class RegimeSwitchingModel:
     
     def __init__(
         self,
-        transition_matrix: np.ndarray,
-        regime_params: List[RegimeParameters],
+        *args,
+        transition_matrix: Optional[np.ndarray] = None,
+        regime_params: Optional[List[RegimeParameters]] = None,
         dt: float = 1.0 / 252
     ):
         def _is_regime_params(candidate: object) -> bool:
@@ -243,15 +262,36 @@ class RegimeSwitchingModel:
                 and np.issubdtype(arr.dtype, np.number)
             )
 
-        # Accept either (transition_matrix, regime_params) or (regime_params, transition_matrix).
-        if _is_regime_params(transition_matrix) and _is_square_numeric_matrix(regime_params):
-            transition_matrix, regime_params = regime_params, transition_matrix
-        elif _is_regime_params(regime_params) and _is_square_numeric_matrix(transition_matrix):
-            pass
-        else:
+        # Accept positional or keyword combinations:
+        # (transition_matrix, regime_params) or (regime_params, transition_matrix).
+        if len(args) > 2:
+            raise TypeError("RegimeSwitchingModel accepts at most two positional arguments.")
+
+        if len(args) == 2:
+            arg_a, arg_b = args
+            if _is_regime_params(arg_a) and _is_square_numeric_matrix(arg_b):
+                regime_params, transition_matrix = arg_a, arg_b
+            elif _is_square_numeric_matrix(arg_a) and _is_regime_params(arg_b):
+                transition_matrix, regime_params = arg_a, arg_b
+            else:
+                raise ValueError(
+                    "RegimeSwitchingModel expects (transition_matrix, regime_params) "
+                    "or (regime_params, transition_matrix)."
+                )
+        elif len(args) == 1:
+            (arg,) = args
+            if _is_regime_params(arg):
+                regime_params = arg
+            elif _is_square_numeric_matrix(arg):
+                transition_matrix = arg
+            else:
+                raise ValueError(
+                    "RegimeSwitchingModel expects a transition matrix or regime parameters."
+                )
+
+        if transition_matrix is None or regime_params is None:
             raise ValueError(
-                "RegimeSwitchingModel expects (transition_matrix, regime_params) "
-                "or (regime_params, transition_matrix)."
+                "RegimeSwitchingModel requires both transition_matrix and regime_params."
             )
         
         self.regime_params = regime_params

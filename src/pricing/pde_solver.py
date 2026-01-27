@@ -11,6 +11,8 @@ from scipy.sparse.linalg import spsolve
 from typing import Optional, Tuple, List
 import logging
 
+from ..utils.input_validation import validate_pde_inputs
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +76,8 @@ class PDESolver:
             Option prices at spot for each regime
         """
         from .exotic_options import BarrierOption, VanillaOption
+
+        validate_pde_inputs(S_max, n_space, n_time, theta)
         
         T = option.maturity
         dt = T / n_time
