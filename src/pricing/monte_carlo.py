@@ -16,6 +16,10 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for minimal installs
 
 from ..models.asset_dynamics import AssetSimulator
 from .exotic_options import ExoticOption
+from ..utils.input_validation import (
+    validate_monte_carlo_inputs,
+    validate_bump_size,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,7 @@ class MonteCarloEngine:
                 raise ValueError("Provide either n_simulations or n_paths, not conflicting values.")
             n_simulations = n_paths
 
+        validate_monte_carlo_inputs(n_simulations, seed)
         self.simulator = asset_simulator
         self.n_simulations = n_simulations
         self.seed = seed
@@ -157,6 +162,7 @@ class MonteCarloEngine:
         dict
             Pricing results with Greeks
         """
+        validate_bump_size(bump_size)
         # Base price
         base_results = self.price_option(option, initial_regime, show_progress=False)
         base_price = base_results['price']
@@ -219,8 +225,8 @@ class MonteCarloEngine:
             original_vols.append(params.volatility)
             params.volatility *= (1 + bump_size)
         
-        # Recreate volatility models
-        self.simulator.vol_models = self.simulator._create_volatility_models()
+        # Recreate volatility models + JIT parameter matrix
+        self.simulator.refresh_parameters()
         
         # Price with bumped volatility
         price = self.price_option(option, initial_regime, show_progress=False)['price']
@@ -228,7 +234,7 @@ class MonteCarloEngine:
         # Restore original volatilities
         for i, params in enumerate(self.simulator.regime_model.regime_params):
             params.volatility = original_vols[i]
-        self.simulator.vol_models = self.simulator._create_volatility_models()
+        self.simulator.refresh_parameters()
         
         return price
     
