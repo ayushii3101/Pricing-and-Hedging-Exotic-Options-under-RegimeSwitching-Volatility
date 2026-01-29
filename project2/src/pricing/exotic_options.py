@@ -11,6 +11,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 
+from ..utils.input_validation import (
+    validate_option_inputs,
+    validate_barrier_inputs,
+    validate_asian_inputs,
+    validate_lookback_inputs,
+    validate_digital_inputs,
+    validate_black_scholes_inputs,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +53,9 @@ class ExoticOption(ABC):
         """Return option name."""
         pass
 
+    def __post_init__(self) -> None:
+        validate_option_inputs(self.strike, self.maturity, self.option_type)
+
 
 @dataclass
 class BarrierOption(ExoticOption):
@@ -69,6 +81,17 @@ class BarrierOption(ExoticOption):
     barrier: float = 120.0
     barrier_type: str = 'up-and-out'
     rebate: float = 0.0
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        validate_barrier_inputs(
+            self.strike,
+            self.maturity,
+            self.option_type,
+            self.barrier,
+            self.barrier_type,
+            self.rebate,
+        )
     
     def payoff(self, price_path: np.ndarray) -> float:
         """Compute barrier option payoff."""
@@ -128,6 +151,15 @@ class AsianOption(ExoticOption):
     """
     
     averaging_type: str = 'arithmetic'
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        validate_asian_inputs(
+            self.strike,
+            self.maturity,
+            self.option_type,
+            self.averaging_type,
+        )
     
     def payoff(self, price_path: np.ndarray) -> float:
         """Compute Asian option payoff."""
@@ -168,6 +200,15 @@ class LookbackOption(ExoticOption):
     """
     
     lookback_type: str = 'fixed'
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        validate_lookback_inputs(
+            self.strike,
+            self.maturity,
+            self.option_type,
+            self.lookback_type,
+        )
     
     def payoff(self, price_path: np.ndarray) -> float:
         """Compute lookback option payoff."""
@@ -228,6 +269,15 @@ class VanillaOption(ExoticOption):
     ) -> float:
         """Compute Black-Scholes price for comparison."""
         from scipy.stats import norm
+
+        validate_black_scholes_inputs(
+            spot,
+            self.strike,
+            self.maturity,
+            volatility,
+            risk_free_rate,
+            dividend_yield,
+        )
         
         d1 = (np.log(spot / self.strike) + 
               (risk_free_rate - dividend_yield + 0.5 * volatility**2) * self.maturity) / \
@@ -271,6 +321,7 @@ class DigitalOption(ExoticOption):
         self.maturity = maturity
         self.option_type = option_type
         self.payout = payout
+        validate_digital_inputs(strike, maturity, option_type, payout)
     
     def payoff(self, price_path: np.ndarray) -> float:
         """Compute digital option payoff."""

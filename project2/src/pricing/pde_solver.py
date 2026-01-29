@@ -8,8 +8,10 @@ Solves coupled system of PDEs for option pricing under regime switching.
 import numpy as np
 from scipy.sparse import diags, csr_matrix
 from scipy.sparse.linalg import spsolve
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 import logging
+
+from ..utils.input_validation import validate_pde_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +76,14 @@ class PDESolver:
             Option prices at spot for each regime
         """
         from .exotic_options import BarrierOption, VanillaOption
+
+        validate_pde_inputs(S_max, n_space, n_time, theta)
         
         T = option.maturity
         dt = T / n_time
         dS = S_max / n_space
         
-        # Space grid
+        # Space grid (uniform)
         S_grid = np.linspace(0, S_max, n_space + 1)
         
         # Initialize solution arrays for each regime
@@ -99,7 +103,7 @@ class PDESolver:
                 
                 # Build tri-diagonal matrix
                 A, b = self._build_fd_system(
-                    S_grid, V[regime], sigma, dt, dS, theta, regime
+                    S_grid, V[regime], sigma, dt, theta, regime, option
                 )
                 
                 # Add coupling terms from other regimes
@@ -114,7 +118,6 @@ class PDESolver:
             V = V_new.copy()
         
         # Extract prices at current spot
-        S0 = self.regime_model.regime_params[0].volatility  # Use S0 from model if available
         prices = np.array([np.interp(100.0, S_grid, V[i]) for i in range(self.n_regimes)])
         
         logger.info(f"PDE solution computed: {prices}")
@@ -133,6 +136,48 @@ class PDESolver:
         else:
             # For path-dependent options, use Monte Carlo instead
             raise NotImplementedError("PDE solver only supports vanilla and simple barrier options")
+
+    def compute_regime_greeks(
+        self,
+        option,
+        spot: float,
+        S_max: float = 300.0,
+        n_space: int = 200,
+        n_time: int = 500,
+        theta: float = 0.5
+    ) -> Dict:
+        """
+        Compute per-regime delta/gamma from PDE solution.
+        """
+        V, S_grid, _ = self.solve(option, S_max, n_space, n_time, theta)
+        dS = S_grid[1] - S_grid[0]
+
+        if spot <= S_grid[0]:
+            idx = 1
+        elif spot >= S_grid[-1]:
+            idx = len(S_grid) - 2
+        else:
+            idx = int(np.searchsorted(S_grid, spot))
+            idx = max(1, min(idx, len(S_grid) - 2))
+
+        deltas = []
+        gammas = []
+        values = []
+        for regime in range(self.n_regimes):
+            v = V[regime]
+            delta = (v[idx + 1] - v[idx - 1]) / (2 * dS)
+            gamma = (v[idx + 1] - 2 * v[idx] + v[idx - 1]) / (dS ** 2)
+            deltas.append(delta)
+            gammas.append(gamma)
+            values.append(v[idx])
+
+        return {
+            'S_grid': S_grid,
+            'index': idx,
+            'values': np.array(values),
+            'deltas': np.array(deltas),
+            'gammas': np.array(gammas)
+        }
     
     def _build_fd_system(
         self,
@@ -140,9 +185,9 @@ class PDESolver:
         V_old: np.ndarray,
         sigma: float,
         dt: float,
-        dS: float,
         theta: float,
-        regime: int
+        regime: int,
+        option
     ) -> Tuple[csr_matrix, np.ndarray]:
         """Build finite difference system for one regime."""
         n = len(S_grid)
@@ -152,6 +197,7 @@ class PDESolver:
         beta = np.zeros(n)
         gamma = np.zeros(n)
         
+        dS = S_grid[1] - S_grid[0]
         for i in range(1, n - 1):
             S = S_grid[i]
             alpha[i] = 0.5 * dt * ((self.r - self.q) / dS * S - sigma**2 / dS**2 * S**2)

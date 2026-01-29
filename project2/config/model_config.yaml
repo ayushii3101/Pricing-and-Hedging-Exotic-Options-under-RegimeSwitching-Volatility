@@ -1,36 +1,39 @@
 # Model Configuration for Regime-Switching Stochastic Volatility
 
 # Market Parameters
+# Note: spot_price will be overwritten by real market data if ticker is valid
 market:
-  spot_price: 100.0
-  risk_free_rate: 0.03
-  dividend_yield: 0.01
+  ticker: "SPY"       # Added for real data integration
+  spot_price: 100.0   # Fallback if download fails
+  risk_free_rate: 0.045 # Updated to reflect 2024/2025 rates
+  dividend_yield: 0.013
 
-# Regime Configuration
 # Regime Configuration
 regimes:
   n_regimes: 3
   
   # Regime 1: Low Volatility (Calm Market)
+  # FIXED: Feller Condition Satisfied (2*0.5*0.0085 > 0.08^2)
   regime_1:
     name: "Low Vol"
     drift: 0.08
     volatility: 0.0923
     volatility_type: "heston"
-    mean_reversion: 0.5    # Keep default or tweak
-    vol_of_vol: 0.1        # Keep default or tweak
-    long_term_var: 0.0085  # approx 0.0923^2
+    mean_reversion: 0.5    
+    vol_of_vol: 0.08       # Reduced from 0.1 to satisfy Feller
+    long_term_var: 0.0085  
     correlation: -0.5
     
   # Regime 2: Medium Volatility (Normal Market)
+  # FIXED: Feller Condition Satisfied (2*1.0*0.0456 > 0.25^2)
   regime_2:
     name: "Medium Vol"
     drift: 0.04
     volatility: 0.2135
     volatility_type: "heston"
     mean_reversion: 1.0
-    vol_of_vol: 0.3
-    long_term_var: 0.0456  # approx 0.2135^2
+    vol_of_vol: 0.25       # Reduced from 0.3 to be safer
+    long_term_var: 0.0456  
     correlation: -0.7
     
   # Regime 3: High Volatility (Turbulent Market)
@@ -41,7 +44,7 @@ regimes:
     volatility_type: "heston"
     mean_reversion: 2.0
     vol_of_vol: 0.5
-    long_term_var: 0.3270  # approx 0.5719^2
+    long_term_var: 0.3270  
     correlation: -0.8
 
 # Transition Probability Matrix
@@ -50,21 +53,11 @@ transition_matrix:
   - [0.015575749784736992, 0.9818110020246527, 0.0026132481906104834]
   - [0.000000000000000001, 0.03413778170966149, 0.9658622182903386]
 
-# Transition Probability Matrix
-# Q[i][j] = probability of transitioning from regime i to regime j per year
-transition_matrix:
-  # From Regime 1 (Low Vol)
-  - [0.85, 0.12, 0.03]    # To: Low, Medium, High
-  # From Regime 2 (Medium Vol)
-  - [0.10, 0.80, 0.10]    # To: Low, Medium, High
-  # From Regime 3 (High Vol)
-  - [0.05, 0.25, 0.70]    # To: Low, Medium, High
-
 # Simulation Settings
 simulation:
   n_paths: 20000
-  n_steps: 252  # Trading days per year
-  time_horizon: 1.0  # Years
+  n_steps: 252
+  time_horizon: 1.0
   seed: 42
   antithetic: true
   control_variate: true
@@ -73,14 +66,14 @@ simulation:
 options:
   barrier:
     type: "up-and-out"
-    strike: 100.0
+    strike: 100.0   # Will be relative to spot in main.py logic if needed
     barrier: 120.0
     maturity: 1.0
-    option_type: "call"  # call or put
+    option_type: "call"
     rebate: 0.0
     
   asian:
-    type: "arithmetic"  # arithmetic or geometric
+    type: "arithmetic"
     strike: 100.0
     maturity: 1.0
     option_type: "call"
@@ -88,24 +81,25 @@ options:
     n_averaging_points: 50
     
   lookback:
-    type: "fixed"  # fixed or floating
+    type: "fixed"
     strike: 100.0
     maturity: 1.0
     option_type: "call"
 
 # PDE Solver Settings
 pde_solver:
-  method: "crank-nicolson"  # explicit, implicit, crank-nicolson
+  method: "crank-nicolson"
   n_space_steps: 200
   n_time_steps: 500
   space_domain:
     min: 0.0
     max: 300.0
   boundary_condition: "dirichlet"
-  theta: 0.5  # 0=explicit, 0.5=Crank-Nicolson, 1=implicit
+  theta: 0.5
 
 # Hedging Configuration
 hedging:
+  position_size: 100.0
   instruments:
     - type: "underlying"
       name: "Stock"
@@ -117,13 +111,14 @@ hedging:
       maturity: 1.0
       
   rebalancing:
-    frequency: "daily"  # daily, weekly, monthly
+    frequency: "daily"
     n_rebalances: 252
     
   optimization:
-    method: "mean-variance"  # mean-variance, min-variance, utility
+    method: "mean-variance"
     risk_aversion: 0.5
-    transaction_cost: 0.001  # 10 bps
+    transaction_cost: 0
+    
     
   constraints:
     max_leverage: 2.0
@@ -132,7 +127,7 @@ hedging:
 
 # Greeks Computation
 greeks:
-  method: "finite_difference"  # finite_difference, pathwise, likelihood_ratio
+  method: "finite_difference"
   bump_size: 0.01
   second_order: true
   cross_gamma: true
@@ -156,7 +151,7 @@ validation:
 output:
   save_results: true
   results_directory: "results"
-  plot_format: "png"  # png, pdf, svg
+  plot_format: "png"
   save_simulations: false
   verbose: true
   

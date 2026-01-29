@@ -2,6 +2,8 @@ import numpy as np
 import sys
 from pathlib import Path
 import time
+import yfinance as yf  # Added for real data integration
+import logging
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -9,11 +11,47 @@ from src.models.regime_switching import create_model_from_config
 from src.models.asset_dynamics import AssetSimulator
 from src.pricing.exotic_options import BarrierOption, AsianOption, VanillaOption, create_option_from_config
 from src.pricing.monte_carlo import MonteCarloEngine
-from src.hedging.portfolio import HedgingPortfolio, Stock, VanillaHedge
+from src.hedging.portfolio import HedgingPortfolio, Stock, Cash, VanillaHedge
 from src.hedging.optimization import MeanVarianceHedger
 from src.analytics.validation import MartingaleValidator
 from src.analytics.visualization import ResultsVisualizer
 from src.utils.data_utils import load_config, save_results, setup_logging, print_results_summary, create_output_directory
+
+logger = logging.getLogger(__name__)
+
+def fetch_real_market_data(ticker: str) -> float:
+    """Fetch real-time spot price from Yahoo Finance."""
+    print(f"\n[Data] Fetching real market data for {ticker}...")
+    try:
+        # Fetch 1 day of data with 1 minute interval to get the absolute latest price
+        data = yf.download(ticker, period="1d", interval="1m", progress=False)
+        if data.empty:
+            # Fallback to daily if minute data fails
+            data = yf.download(ticker, period="1d", progress=False)
+            
+        if data.empty:
+            logger.warning(f"No data found for {ticker}. Using configuration fallback.")
+            return None
+        
+        # Get latest Close (handle MultiIndex columns if necessary)
+        if 'Close' in data.columns:
+            close_data = data['Close']
+            
+            # --- FIX: Safe scalar extraction to prevent FutureWarning ---
+            if hasattr(close_data, 'iloc'):
+                # Extract the last element as a Python scalar
+                real_spot = float(close_data.iloc[-1].item())
+            else:
+                real_spot = float(close_data.item())
+            # ----------------------------------------------------------
+        else:
+            return None
+
+        print(f"✓ Retrieved Live Spot Price: ${real_spot:.2f}")
+        return real_spot
+    except Exception as e:
+        logger.error(f"Failed to fetch market data: {e}")
+        return None
 
 def main():
     """Run comprehensive analysis."""
@@ -33,6 +71,21 @@ def main():
     config_path = Path(__file__).parent / "config" / "model_config.yaml"
     config = load_config(str(config_path))
     
+    # --- REAL DATA INTEGRATION ---
+    # We fetch data BEFORE creating the model to update spot prices
+    market_ticker = config['market'].get('ticker', 'SPY')
+    real_spot = fetch_real_market_data(market_ticker)
+    
+    if real_spot:
+        config['market']['spot_price'] = real_spot
+        # Dynamically update Option parameters to match new Spot
+        # e.g., Set barrier to 120% of spot, Strike to ATM
+        config['options']['barrier']['strike'] = real_spot
+        config['options']['barrier']['barrier'] = real_spot * 1.2
+        config['options']['asian']['strike'] = real_spot
+        config['options']['lookback']['strike'] = real_spot
+    # -----------------------------
+
     # Create model
     print("\n[1/10] Creating regime-switching model...")
     regime_model = create_model_from_config(config)
@@ -70,8 +123,12 @@ def main():
     # Create options
     print("\n[5/10] Creating exotic options...")
     barrier_option = create_option_from_config(config)
+    
+    # Ensure Strikes match the configured (potentially real) spot
+    strike_price = config['options']['barrier']['strike']
+    
     vanilla_option = VanillaOption(
-        strike=config['options']['barrier']['strike'],
+        strike=strike_price,
         maturity=config['options']['barrier']['maturity'],
         option_type='call'
     )
@@ -140,20 +197,28 @@ def main():
     hedger = MeanVarianceHedger(simulator, risk_aversion=0.5)
     
     # Create hedging portfolio
-    hedging_portfolio = HedgingPortfolio(barrier_option)
+    hedge_qty = config.get('hedging', {}).get('position_size', 1.0)
+    hedging_portfolio = HedgingPortfolio(barrier_option, quantity=hedge_qty)
     hedging_portfolio.add_instrument(Stock(quantity=0.0))
-    hedging_portfolio.add_instrument(VanillaHedge(100, 1.0, 'call', quantity=0.0))
+    initial_capital = barrier_price['price'] * hedge_qty
+    hedging_portfolio.add_instrument(Cash(amount=initial_capital))
+    print(f"  Initialized Portfolio with Cash: ${initial_capital:.2f}")
+    # We add a vanilla option with the REAL strike price
+    hedging_portfolio.add_instrument(VanillaHedge(strike_price, 1.0, 'call', quantity=0.0))
     
     # Dynamic hedging
     hedging_results = hedger.dynamic_hedge(
         barrier_option,
         hedging_portfolio,
-        n_rebalances=20,
-        n_scenarios=300
+        n_rebalances=104,
+        n_scenarios=2500
     )
     
     print("  HEDGING RESULTS:")
+    print(f"    Position Size:     {hedge_qty:.0f} option(s)")
     print(f"    Terminal Error:    ${hedging_results['terminal_hedge_error']['absolute_error']:.4f}")
+    if hedge_qty > 0:
+        print(f"    Error per Option:  ${hedging_results['terminal_hedge_error']['absolute_error'] / hedge_qty:.4f}")
     print(f"    Relative Error:    {hedging_results['terminal_hedge_error']['relative_error']*100:.2f}%")
     print(f"    RMSE:             ${hedging_results['terminal_hedge_error']['rmse']:.4f}")
     
@@ -231,4 +296,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()

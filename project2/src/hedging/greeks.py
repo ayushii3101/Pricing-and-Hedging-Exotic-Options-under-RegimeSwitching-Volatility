@@ -86,14 +86,14 @@ class GreeksCalculator:
         for params in self.mc_engine.simulator.regime_model.regime_params:
             original_vols.append(params.volatility)
             params.volatility *= (1 + self.bump_size)
-        
-        self.mc_engine.simulator.vol_models = self.mc_engine.simulator._create_volatility_models()
+
+        self.mc_engine.simulator.refresh_parameters()
         price_bumped = self._price_with_seed(option, initial_regime)
         
         # Restore
         for i, params in enumerate(self.mc_engine.simulator.regime_model.regime_params):
             params.volatility = original_vols[i]
-        self.mc_engine.simulator.vol_models = self.mc_engine.simulator._create_volatility_models()
+        self.mc_engine.simulator.refresh_parameters()
         
         return (price_bumped - base_price) / self.bump_size
     

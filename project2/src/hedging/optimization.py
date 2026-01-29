@@ -191,36 +191,59 @@ class MeanVarianceHedger:
             1, n_steps, T, risk_neutral=False, show_progress=False
         )
         main_path = prices[0, :]
+        main_regimes = regimes[0, :]
         
         # Tracking
         portfolio_values = []
-        hedge_errors = []
-        transaction_costs = []
         
+        original_spot = self.simulator.S0
+        original_maturity = option.maturity
         spot = main_path[0]
+        from ..pricing.pde_solver import PDESolver
+        pde_solver = PDESolver(self.simulator.regime_model, self.simulator.r, self.simulator.q)
         
         for t_idx in range(n_rebalances):
             spot = main_path[t_idx]
+            current_regime = int(main_regimes[t_idx])
+            remaining_time = max(T - t_idx * dt, 1e-6)
+            option.maturity = remaining_time
             
-            # Compute Greeks at current point
-            # Simplified: use Monte Carlo from current spot
-            from ..pricing.monte_carlo import MonteCarloEngine
-            temp_engine = MonteCarloEngine(self.simulator, n_simulations=500)
-            greeks = temp_engine.price_with_greeks(option)
+            # PDE-based per-regime Greeks
+            pde_greeks = pde_solver.compute_regime_greeks(
+                option, spot, S_max=max(3 * spot, 300.0)
+            )
+            deltas = pde_greeks['deltas']
+            gammas = pde_greeks['gammas']
+
+            # Regime probability weighting
+            dt_regime = getattr(self.simulator.regime_model, 'dt', 1.0 / 252)
+            steps = max(int(remaining_time / dt_regime), 1)
+            Q = self.simulator.regime_model.markov_chain.Q
+            transition = np.linalg.matrix_power(Q, steps)
+            probs = transition[current_regime]
+            
+            delta = float(np.dot(probs, deltas))
+            gamma = float(np.dot(probs, gammas))
+            greeks = {'delta': delta, 'gamma': gamma}
             
             # Rebalance portfolio
             new_ratios = hedging_portfolio.rebalance(spot, greeks, transaction_cost)
             hedging_portfolio.update_positions(new_ratios, spot)
             
             # Track portfolio value
-            portfolio_value = hedging_portfolio.value(spot, volatility=0.25, risk_free_rate=self.simulator.r)
+            portfolio_value = hedging_portfolio.value(
+                spot, volatility=0.25, risk_free_rate=self.simulator.r
+            )
             portfolio_values.append(portfolio_value)
+        
+        self.simulator.S0 = original_spot
+        option.maturity = original_maturity
         
         # Terminal hedge error
         terminal_spot = main_path[-1]
         terminal_payoff = option.payoff(main_path)
         terminal_portfolio = hedging_portfolio.value(
-            terminal_spot, volatility=0.25, risk_free_rate=self.simulator.r
+            terminal_spot, volatility=0.25, risk_free_rate=getattr(self.simulator, 'r', 0.03)
         )
         
         hedge_error_stats = hedging_portfolio.compute_hedging_error(

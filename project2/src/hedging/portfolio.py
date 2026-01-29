@@ -85,12 +85,20 @@ class HedgingPortfolio:
         Available hedging instruments
     """
     
-    def __init__(self, target_option, instruments: Optional[List[HedgingInstrument]] = None):
+    def __init__(
+        self,
+        target_option,
+        instruments: Optional[List[HedgingInstrument]] = None,
+        quantity: float = 1.0
+    ):
         self.target_option = target_option
         self.instruments = instruments or []
+        self.quantity = quantity
         self.history = []
         
-        logger.info(f"Created hedging portfolio for {target_option.name()}")
+        logger.info(
+            f"Created hedging portfolio for {target_option.name()} (qty={quantity})"
+        )
     
     def add_instrument(self, instrument: HedgingInstrument):
         """Add an instrument to the portfolio."""
@@ -116,6 +124,8 @@ class HedgingPortfolio:
             if instrument.name in hedge_ratios:
                 old_quantity = instrument.quantity
                 instrument.quantity = hedge_ratios[instrument.name]
+                if isinstance(instrument, Cash):
+                    instrument.amount = instrument.quantity
                 
                 logger.debug(f"{instrument.name}: {old_quantity:.4f} -> {instrument.quantity:.4f}")
         
@@ -149,21 +159,33 @@ class HedgingPortfolio:
         Dict[str, float]
             New hedge ratios
         """
-        # Simple delta hedge for now
-        target_delta = greeks.get('delta', 0.0)
-        
-        # Find stock instrument
+        # Self-financing delta hedge
+        target_delta = greeks.get('delta', 0.0) * self.quantity
+        updates: Dict[str, float] = {}
+
+        # 1) Stock rebalancing
         stock = next((inst for inst in self.instruments if isinstance(inst, Stock)), None)
+        cost_of_trades = 0.0
         if stock:
+            old_quantity = stock.quantity
             new_quantity = target_delta
-            
-            # Apply transaction costs
-            trade_size = abs(new_quantity - stock.quantity)
-            cost = trade_size * spot * transaction_cost
-            
-            return {stock.name: new_quantity}
-        
-        return {}
+
+            trade_size = new_quantity - old_quantity
+            cost_of_trades = trade_size * spot
+
+            trading_fees = abs(trade_size) * spot * transaction_cost
+            cost_of_trades += trading_fees
+
+            updates[stock.name] = new_quantity
+
+        # 2) Cash adjustment (self-financing)
+        cash = next((inst for inst in self.instruments if isinstance(inst, Cash)), None)
+        if cash:
+            updates[cash.name] = cash.amount - cost_of_trades
+        elif cost_of_trades != 0.0:
+            logger.warning("Rebalancing required cash flow but no Cash instrument found!")
+
+        return updates
     
     def compute_hedging_error(
         self,
@@ -211,6 +233,7 @@ class HedgingPortfolio:
             )
 
             payoffs = np.array([option.payoff(prices[i, :]) for i in range(n_paths)])
+            payoffs = payoffs * self.quantity
             terminal_spots = prices[:, -1]
 
             implied_vol = float(
@@ -237,14 +260,22 @@ class HedgingPortfolio:
             }
 
         # Terminal error for a single realization.
-        error = terminal_value - terminal_payoff
-        relative_error = error / max(abs(terminal_payoff), 1e-6)
+        scaled_payoff = terminal_payoff * self.quantity
+        error = terminal_value - scaled_payoff
+        
+        # Robust relative error calculation (Safe against divide-by-zero)
+        denominator = abs(scaled_payoff)
+        if denominator < 1e-4:
+            # Option expired OTM/ATM, relative error is not meaningful
+            relative_error = 0.0 
+        else:
+            relative_error = error / denominator
 
         return {
             'absolute_error': error,
             'relative_error': relative_error,
             'rmse': np.sqrt(error ** 2),
-            'terminal_payoff': terminal_payoff,
+            'terminal_payoff': scaled_payoff,
             'terminal_value': terminal_value
         }
     
