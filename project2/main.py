@@ -14,7 +14,6 @@ from src.pricing.monte_carlo import MonteCarloEngine
 from src.hedging.portfolio import HedgingPortfolio, Stock, Cash, VanillaHedge
 from src.hedging.optimization import MeanVarianceHedger
 from src.analytics.validation import MartingaleValidator
-from src.analytics.visualization import ResultsVisualizer
 from src.utils.data_utils import load_config, save_results, setup_logging, print_results_summary, create_output_directory
 
 logger = logging.getLogger(__name__)
@@ -222,45 +221,8 @@ def main():
     print(f"    Relative Error:    {hedging_results['terminal_hedge_error']['relative_error']*100:.2f}%")
     print(f"    RMSE:             ${hedging_results['terminal_hedge_error']['rmse']:.4f}")
     
-    # Visualizations
-    print("\nGenerating visualizations...")
-    visualizer = ResultsVisualizer(output_dir=str(output_dir))
-    
-    # Simulate paths for visualization
-    prices, regimes, variances = simulator.simulate_paths(
-        100, 252, 1.0, seed=42, show_progress=False
-    )
-    
-    # Plot price paths
-    visualizer.plot_price_paths(
-        prices, regimes, n_paths_to_plot=10,
-        filename='asset_price_paths.png'
-    )
-    
-    # Plot convergence
-    visualizer.plot_convergence(
-        convergence_results['path_sizes'],
-        convergence_results['prices'],
-        convergence_results['std_errors'],
-        filename='convergence_analysis.png'
-    )
-    
-    # Plot hedging performance
-    time_grid = np.linspace(0, 1.0, len(hedging_results['portfolio_values']))
-    visualizer.plot_hedging_performance(
-        time_grid,
-        hedging_results['portfolio_values'],
-        hedging_results['price_path'],
-        filename='hedging_performance.png'
-    )
-    
-    # Get regime statistics
-    regime_stats = simulator.get_regime_statistics(regimes)
-    visualizer.plot_regime_statistics(
-        regime_stats,
-        filename='regime_statistics.png'
-    )
-    
+    # Visualizations disabled: no plots are generated.
+
     # Save results
     print("\nSaving results...")
     all_results = {
@@ -273,7 +235,6 @@ def main():
         'convergence_analysis': convergence_results,
         'greeks': barrier_greeks,
         'hedging_results': hedging_results,
-        'regime_statistics': regime_stats
     }
     
     save_results(all_results, str(output_dir / 'comprehensive_results.json'), format='json')
